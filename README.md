@@ -1,6 +1,6 @@
 Для запуска тестов
 1. Установить зависимости `pip install -r requirements.txt`
-2. Прописать команду `playwrithg install`
+2. Прописать команду `playwright install`
 3. Запустить тесты `pytest test_e2e.py`
 
 
