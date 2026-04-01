@@ -6,9 +6,7 @@ permissions:
 
 on:
   schedule:
-    - cron: "0 0 * * *" # Runs daily at midnight
-      branches:
-        - main # Restrict schedule to main branch
+    - cron: "50 22 * * *" # Runs daily at midnight
   workflow_dispatch: # Allows manual triggering
 
 jobs:
@@ -25,9 +23,9 @@ jobs:
         id: image_hashes
         run: |
           BACKEND_LATEST_HASH=$(docker pull ghcr.io/qmemorycards/backend:latest | grep "Digest" | awk '{print $2}')
-          BACKEND_VERIFIED_HASH=$(docker pull ghcr.io/qmemorycards/backend:verified | grep "Digest" | awk '{print $2}' || echo "none")
+          BACKEND_VERIFIED_HASH=$(docker pull ghcr.io/qmemorycards/backend:verified 2>/dev/null | grep "Digest" | awk '{print $2}' || echo "none")
           FRONTEND_LATEST_HASH=$(docker pull ghcr.io/qmemorycards/frontend:latest | grep "Digest" | awk '{print $2}')
-          FRONTEND_VERIFIED_HASH=$(docker pull ghcr.io/qmemorycards/frontend:verified | grep "Digest" | awk '{print $2}' || echo "none")
+          FRONTEND_VERIFIED_HASH=$(docker pull ghcr.io/qmemorycards/frontend:verified 2>/dev/null | grep "Digest" | awk '{print $2}' || echo "none")
 
           echo "BACKEND_CHANGED=false" >> $GITHUB_ENV
           echo "FRONTEND_CHANGED=false" >> $GITHUB_ENV
@@ -44,6 +42,14 @@ jobs:
             echo "RUN_TESTS=true" >> $GITHUB_ENV
           else
             echo "RUN_TESTS=false" >> $GITHUB_ENV
+          fi
+          
+
+      # Set up Docker Compose
+      - name: Set up Docker Compose
+        if: env.RUN_TESTS == 'true'
+        run: |
+          docker compose up -d
 
       # Set up Python
       - name: Set up Python
@@ -74,7 +80,10 @@ jobs:
       - name: Tear down Docker Compose
         if: env.RUN_TESTS == 'true' && always()
         run: |
-          docker-compose down
+          docker compose down
+
+      - name: Log in
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       # Tag and push verified backend image
       - name: Tag and push verified backend image
