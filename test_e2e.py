@@ -13,6 +13,91 @@ def get_uid():
 
 class TestMemoryCardsE2E:
     # -------------------------------------------------------------------------
+    # Сценарий 1. Регистрация нового пользователя, вход и создание первой колоды
+    # -------------------------------------------------------------------------
+    def test_scenario_1_register_login_create_deck(self, page: Page):
+        uid = get_uid()
+        email = f"e2e_user1_{uid}@mail.com"
+        login = f"e2e_user1_{uid}"
+
+        # 1-2. Переход на главную и открытие формы регистрации
+        page.goto(FRONTEND_URL)
+        page.get_by_role("button", name="Зарегистрироваться").click()
+
+        # 3. Ввод валидных данных
+        page.get_by_placeholder("example@mail.com").fill(email)
+        page.get_by_placeholder("username").fill(login)
+        page.get_by_placeholder("Введите пароль").fill("StrongPass123!")
+
+        # 4-6. Кнопка активна, нажимаем, ждем редиректа на логин
+        submit_btn = page.get_by_role("button", name="Зарегистрироваться")
+        expect(submit_btn).to_be_enabled()
+        submit_btn.click()
+        expect(page).to_have_url(f"{FRONTEND_URL}/login")
+
+        # 7-9. Вход в систему
+        page.get_by_placeholder("Введите логин").fill(login)
+        page.get_by_placeholder("Введите пароль").fill("StrongPass123!")
+        page.get_by_role("button", name="Войти").click()
+        expect(page).to_have_url(f"{FRONTEND_URL}/decks")
+
+        # 10-14. Создание колоды
+        page.get_by_role("button", name="Создать первую колоду").click()
+        page.get_by_placeholder("Введите название колоды").fill("Английские слова")
+        page.get_by_placeholder("Добавьте описание колоды").fill("Базовая лексика")
+
+        modal = page.get_by_role("dialog")
+        modal.get_by_role("button", name="Создать").click()
+        expect(modal).not_to_be_visible()
+
+        # 15. Проверка колоды в списке
+        expect(page.get_by_text("Английские слова")).to_be_visible()
+        expect(page.get_by_text("Базовая лексика")).to_be_visible()
+        expect(page.locator("text=Карточек").locator("..").get_by_text("0", exact=True)).to_be_visible()
+
+    # -------------------------------------------------------------------------
+    # Сценарий 2. Регистрация: невалидные поля, исправление, успешный вход/выход
+    # -------------------------------------------------------------------------
+    def test_scenario_2_invalid_registration_and_logout(self, page: Page):
+        uid = get_uid()
+        valid_email = f"good_user_{uid}@mail.com"
+        valid_login = f"good_user_{uid}"
+
+        page.goto(f"{FRONTEND_URL}/register")
+
+        # Ввод невалидных данных
+        page.get_by_placeholder("example@mail.com").fill("badmail")
+        page.get_by_placeholder("username").fill("русский_логин")
+        page.get_by_placeholder("Введите пароль").fill("123")
+        page.keyboard.press("Tab")  # Чтобы сработал onBlur
+
+        # Проверка ошибок и неактивной кнопки
+        expect(page.get_by_text("Введите корректный email адрес")).to_be_visible()
+        expect(page.get_by_role("button", name="Зарегистрироваться")).to_be_disabled()
+
+        # Исправление
+        page.get_by_placeholder("example@mail.com").fill(valid_email)
+        page.get_by_placeholder("username").fill(valid_login)
+        page.get_by_placeholder("Введите пароль").fill("GoodPass123!")
+
+        # Регистрация и вход
+        page.get_by_role("button", name="Зарегистрироваться").click()
+        page.get_by_placeholder("Введите логин").fill(valid_login)
+        page.get_by_placeholder("Введите пароль").fill("GoodPass123!")
+        page.get_by_role("button", name="Войти").click()
+        expect(page).to_have_url(f"{FRONTEND_URL}/decks")
+
+        # Выход
+        page.get_by_label("Профиль").click()
+        page.get_by_role("button", name="Выйти из аккаунта").click()
+        page.get_by_role("button", name="Выйти", exact=True).click()
+
+        # Проверка защиты роута
+        expect(page).to_have_url(f"{FRONTEND_URL}/")
+        page.goto(f"{FRONTEND_URL}/decks")
+        expect(page).to_have_url(f"{FRONTEND_URL}/login")  # Редирект для неавторизованных
+
+    # -------------------------------------------------------------------------
     # Сценарий 3. Создание колоды, добавление карточек и старт обучения
     # -------------------------------------------------------------------------
     def test_scenario_3_create_deck_add_cards_start_study(self, page: Page):
