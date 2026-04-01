@@ -1,0 +1,56 @@
+name: E2E Tests
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Set up Docker Compose
+      - name: Set up Docker Compose
+        run: |
+          docker compose up -d
+
+      # Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.13
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          source .venv/bin/activate
+          playwright install
+
+      # Run E2E tests
+      - name: Run E2E tests
+        run: |
+          source .venv/bin/activate
+          pytest test_e2e.py -vv
+
+      # Tear down Docker Compose
+      - name: Tear down Docker Compose
+        if: always()
+        run: |
+          docker compose down
