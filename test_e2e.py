@@ -124,6 +124,31 @@ class TestMemoryCardsE2E:
         expect(page).to_have_url(re.compile(r".*/decks/.*/study"))
         expect(page.get_by_text("JVM")).to_be_visible()
 
+    # -------------------------------------------------------------------------
+    # Сценарий 4. Полный цикл обучения
+    # -------------------------------------------------------------------------
+    def test_scenario_4_full_study_cycle(self, page: Page):
+            self._register_and_login(page, "cycle_user")
+            self._create_deck_with_cards(page, "Биология", [("Вопрос 1", "Ответ 1"), ("Вопрос 2", "Ответ 2")])
+
+            page.get_by_role("button", name="Изучить").click()
+
+            # Карточка 1
+            page.get_by_role("button", name="Показать ответ").click()
+            page.get_by_role("button", name="Помню").first.click()
+
+            # Карточка 2
+            page.get_by_role("button", name="Показать ответ").click()
+            page.get_by_role("button", name="Не помню").click()
+
+            # Экран статистики
+            expect(page.get_by_text("Отличная работа!")).to_be_visible()
+            page.get_by_role("button", name="Вернуться к колодам").click()
+            page.reload()
+
+            # Проверяем, что сессия завершена и колода отмечена как изученная сегодня.
+            expect(page.get_by_text("Биология")).to_be_visible()
+            expect(page.get_by_text("Сегодня")).to_be_visible()
 
     # -------------------------------------------------------------------------
     # Сценарий 5. Негативный: старт обучения пустой колоды
@@ -153,3 +178,47 @@ class TestMemoryCardsE2E:
         page.get_by_role("button", name="Войти").click()
         expect(page).to_have_url(f"{FRONTEND_URL}/decks")
         return login
+
+
+    # -------------------------------------------------------------------------
+    # Сценарий 8. Поделиться колодой и импортировать (Мульти-браузер)
+    # -------------------------------------------------------------------------
+    def test_scenario_8_share_and_import(self, browser: Browser):
+            # Пользователь А
+            context_a = browser.new_context()
+            page_a = context_a.new_page()
+            self._register_and_login(page_a, "user_a")
+            self._create_deck_with_cards(page_a, "Shared English", [("Apple", "Яблоко")])
+
+            page_a.get_by_label("Редактировать").click()
+            page_a.get_by_role("button", name="Поделиться").click()
+            share_url = page_a.locator("input[readonly]").input_value()
+
+            # Пользователь B
+            context_b = browser.new_context()
+            page_b = context_b.new_page()
+            self._register_and_login(page_b, "user_b")
+
+            # Переход по ссылке
+            page_b.goto(share_url)
+            expect(page_b.get_by_text("Shared English")).to_be_visible()
+
+            page_b.get_by_role("button", name="Импортировать колоду").click()
+            page_b.get_by_placeholder("Введите название колоды").fill("Shared English Copy")
+            page_b.get_by_role("dialog").get_by_role("button", name="Импортировать").click()
+
+            expect(page_b).to_have_url(re.compile(r".*/decks/.*/edit"))
+            expect(page_b.get_by_placeholder("Введите название колоды")).to_have_value("Shared English Copy")
+
+    def _create_deck_with_cards(self, page: Page, name: str, cards: list):
+        page.get_by_role("button", name=re.compile("Создать (первую )?колоду")).first.click()
+        page.get_by_placeholder("Введите название колоды").fill(name)
+        page.get_by_role("dialog").get_by_role("button", name="Создать").click()
+
+        page.get_by_label("Редактировать").click()
+        for q, a in cards:
+            page.get_by_role("button", name="Добавить карточку").click()
+            page.get_by_placeholder("Введите вопрос").fill(q)
+            page.get_by_placeholder("Введите ответ").fill(a)
+            page.get_by_role("dialog").get_by_role("button", name="Создать").click()
+        page.get_by_role("button", name="Сохранить").click()
