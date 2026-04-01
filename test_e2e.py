@@ -179,6 +179,68 @@ class TestMemoryCardsE2E:
         expect(page).to_have_url(f"{FRONTEND_URL}/decks")
         return login
 
+    # -------------------------------------------------------------------------
+    # Сценарий 6. Негативный: создание дубликата
+    # -------------------------------------------------------------------------
+    def test_scenario_6_duplicate_deck_name(self, page: Page):
+        self._register_and_login(page, "dup_user")
+
+        # Создаем первую колоду
+        page.get_by_role("button", name="Создать первую колоду").click()
+        page.get_by_placeholder("Введите название колоды").fill("История")
+        page.get_by_role("dialog").get_by_role("button", name="Создать").click()
+
+        # Пытаемся создать вторую с таким же именем
+        page.get_by_role("button", name="Создать колоду").click()
+        page.get_by_placeholder("Введите название колоды").fill("История")
+        modal = page.get_by_role("dialog")
+        modal.get_by_role("button", name="Создать").click()
+
+        # Проверка ошибки с бэкенда (Toast или текст в UI)
+        expect(page.get_by_text("Колода с таким названием уже существует")).to_be_visible()
+
+        # Исправляем и сохраняем
+        page.get_by_placeholder("Введите название колоды").fill("История России")
+        modal.get_by_role("button", name="Создать").click()
+        expect(page.get_by_text("История России")).to_be_visible()
+
+    # -------------------------------------------------------------------------
+    # Сценарий 7. Редактирование колоды, удаление карточки (отмена и подтверждение)
+    # -------------------------------------------------------------------------
+    def test_scenario_7_edit_and_delete_card(self, page: Page):
+        self._register_and_login(page, "edit_user")
+
+        # Создаем колоду
+        page.get_by_role("button", name=re.compile("Создать (первую )?колоду")).first.click()
+        page.get_by_placeholder("Введите название колоды").fill("QA Basics")
+        page.get_by_role("dialog").get_by_role("button", name="Создать").click()
+
+        # Переходим в редактирование колоды
+        page.get_by_role("button", name="Редактировать").first.click()
+        expect(page).to_have_url(re.compile(r".*/decks/.*/edit"))
+
+        # Добавляем 2 карточки
+        for q, a in [("Smoke", "Быстрая проверка"), ("Regression", "Повторная проверка")]:
+            page.get_by_role("button", name="Добавить карточку").click()
+            page.get_by_placeholder("Введите вопрос").fill(q)
+            page.get_by_placeholder("Введите ответ").fill(a)
+            page.get_by_role("dialog").get_by_role("button", name="Создать").click()
+            expect(page.get_by_text(q)).to_be_visible()
+
+        smoke_row = page.locator("div").filter(has_text="Smoke").filter(has_text="Быстрая проверка").first
+
+        # Удаление карточки с отменой
+        smoke_row.get_by_label("Удалить").first.click()
+        page.get_by_role("button", name="Отмена").click()
+        expect(page.get_by_text("Smoke", exact=True)).to_be_visible()
+
+        # Удаление карточки с подтверждением
+        smoke_row.get_by_label("Удалить").first.click()
+        page.get_by_role("dialog").last.get_by_role("button", name="Удалить", exact=True).click()
+        expect(page.get_by_text("Smoke", exact=True)).not_to_be_visible()
+
+        page.get_by_role("button", name="Сохранить").click()
+        expect(page.get_by_text("Колода успешно обновлена")).to_be_visible()
 
     # -------------------------------------------------------------------------
     # Сценарий 8. Поделиться колодой и импортировать (Мульти-браузер)
