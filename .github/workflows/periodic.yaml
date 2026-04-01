@@ -5,6 +5,7 @@ permissions:
   packages: write
 
 on:
+  workflow_dispatch: # Allows manual triggering
   image_version:
     branches:
       - main # Restrict schedule to main branch
