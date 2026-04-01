@@ -47,7 +47,7 @@ jobs:
       - name: Run E2E tests
         run: |
           source .venv/bin/activate
-          pytest test_e2e.py
+          pytest test_e2e.py -vv
 
       # Tear down Docker Compose
       - name: Tear down Docker Compose
