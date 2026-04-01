@@ -1,0 +1,76 @@
+name: Periodic E2E Tests
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Runs daily at midnight
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  check-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Get image hashes
+      - name: Get image hashes
+        id: image_hashes
+        run: |
+          BACKEND_LATEST_HASH=$(docker pull ghcr.io/qmemorycards/backend:latest | grep "Digest" | awk '{print $2}')
+          BACKEND_VERIFIED_HASH=$(docker pull ghcr.io/qmemorycards/backend:verified | grep "Digest" | awk '{print $2}' || echo "none")
+          FRONTEND_LATEST_HASH=$(docker pull ghcr.io/qmemorycards/frontend:latest | grep "Digest" | awk '{print $2}')
+          FRONTEND_VERIFIED_HASH=$(docker pull ghcr.io/qmemorycards/frontend:verified | grep "Digest" | awk '{print $2}' || echo "none")
+
+          echo "BACKEND_CHANGED=false" >> $GITHUB_ENV
+          echo "FRONTEND_CHANGED=false" >> $GITHUB_ENV
+
+          if [ "$BACKEND_LATEST_HASH" != "$BACKEND_VERIFIED_HASH" ]; then
+            echo "BACKEND_CHANGED=true" >> $GITHUB_ENV
+          fi
+
+          if [ "$FRONTEND_LATEST_HASH" != "$FRONTEND_VERIFIED_HASH" ]; then
+            echo "FRONTEND_CHANGED=true" >> $GITHUB_ENV
+          fi
+
+          if [ "$BACKEND_LATEST_HASH" != "$BACKEND_VERIFIED_HASH" ] || [ "$FRONTEND_LATEST_HASH" != "$FRONTEND_VERIFIED_HASH" ]; then
+            echo "RUN_TESTS=true" >> $GITHUB_ENV
+          else
+            echo "RUN_TESTS=false" >> $GITHUB_ENV
+
+      # Start Docker Compose services
+      - name: Start Docker Compose
+        if: env.RUN_TESTS == 'true'
+        run: |
+          docker-compose up -d
+
+      # Run E2E tests
+      - name: Run E2E tests
+        if: env.RUN_TESTS == 'true'
+        run: |
+          pytest test_e2e.py
+
+      # Tear down Docker Compose
+      - name: Tear down Docker Compose
+        if: always()
+        run: |
+          docker-compose down
+
+      # Tag and push verified backend image
+      - name: Tag and push verified backend image
+        if: env.BACKEND_CHANGED == 'true' && success()
+        run: |
+          docker tag ghcr.io/qmemorycards/backend:latest ghcr.io/qmemorycards/backend:verified
+          docker push ghcr.io/qmemorycards/backend:verified
+
+      # Tag and push verified frontend image
+      - name: Tag and push verified frontend image
+        if: env.FRONTEND_CHANGED == 'true' && success()
+        run: |
+          docker tag ghcr.io/qmemorycards/frontend:latest ghcr.io/qmemorycards/frontend:verified
+          docker push ghcr.io/qmemorycards/frontend:verified

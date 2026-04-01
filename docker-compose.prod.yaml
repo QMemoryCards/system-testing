@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:15
+    container_name: memory-cards-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-memory_cards}
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    expose:
+      - "5432:5432"
+    networks:
+      - internal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    image: ghcr.io/qmemorycards/backend:latest
+    container_name: memory-cards-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://memory-cards-db:5432/${POSTGRES_DB:-memory_cards}
+      SPRING_DATASOURCE_USERNAME:  ${POSTGRES_USER:-user}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - internal
+
+  frontend:
+    image: ghcr.io/qmemorycards/frontend:latest
+    environment:
+      BACKEND_HOST: ${BACKEND_HOST:-memory-cards-backend}
+      BACKEND_PORT: ${BACKEND_PORT:-8080}
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - internal
+
+volumes:
+  postgres_data:
+
+networks:
+  internal:
+    driver: bridge
