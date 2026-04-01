@@ -61,4 +61,4 @@ jobs:
       - name: Tear down Docker Compose
         if: always()
         run: |
-          docker-compose down
+          docker compose down
