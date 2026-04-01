@@ -7,6 +7,8 @@ permissions:
 on:
   schedule:
     - cron: "0 0 * * *" # Runs daily at midnight
+      branches:
+        - main # Restrict schedule to main branch
   workflow_dispatch: # Allows manual triggering
 
 jobs:
@@ -43,21 +45,43 @@ jobs:
           else
             echo "RUN_TESTS=false" >> $GITHUB_ENV
 
-      # Start Docker Compose services
-      - name: Start Docker Compose
+      # Wait for services to be ready
+      - name: Wait for services
         if: env.RUN_TESTS == 'true'
         run: |
-          docker-compose up -d
+          until docker compose ps | grep "healthy"; do
+            echo "Waiting for services to be healthy..."
+            sleep 5
+          done
+
+      # Set up Python
+      - name: Set up Python
+        if: env.RUN_TESTS == 'true'
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.9
+
+      # Install dependencies
+      - name: Install dependencies
+        if: env.RUN_TESTS == 'true'
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          source .venv/bin/activate
+          playwright install
 
       # Run E2E tests
       - name: Run E2E tests
         if: env.RUN_TESTS == 'true'
         run: |
+          source .venv/bin/activate
           pytest test_e2e.py
 
       # Tear down Docker Compose
       - name: Tear down Docker Compose
-        if: always()
+        if: env.RUN_TESTS == 'true' && always()
         run: |
           docker-compose down
 

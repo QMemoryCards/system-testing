@@ -25,12 +25,12 @@ jobs:
       # Set up Docker Compose
       - name: Set up Docker Compose
         run: |
-          docker-compose up -d
+          docker compose up -d
 
       # Wait for services to be ready
       - name: Wait for services
         run: |
-          until docker-compose ps | grep "healthy"; do
+          until docker compose ps | grep "healthy"; do
             echo "Waiting for services to be healthy..."
             sleep 5
           done
@@ -48,10 +48,6 @@ jobs:
           source .venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
-
-      # Install Playwright browsers
-      - name: Install Playwright browsers
-        run: |
           source .venv/bin/activate
           playwright install
 
