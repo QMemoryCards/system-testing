@@ -45,15 +45,6 @@ jobs:
           else
             echo "RUN_TESTS=false" >> $GITHUB_ENV
 
-      # Wait for services to be ready
-      - name: Wait for services
-        if: env.RUN_TESTS == 'true'
-        run: |
-          until docker compose ps | grep "healthy"; do
-            echo "Waiting for services to be healthy..."
-            sleep 5
-          done
-
       # Set up Python
       - name: Set up Python
         if: env.RUN_TESTS == 'true'

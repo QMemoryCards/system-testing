@@ -27,14 +27,6 @@ jobs:
         run: |
           docker compose up -d
 
-      # Wait for services to be ready
-      - name: Wait for services
-        run: |
-          until docker compose ps | grep "healthy"; do
-            echo "Waiting for services to be healthy..."
-            sleep 5
-          done
-
       # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
