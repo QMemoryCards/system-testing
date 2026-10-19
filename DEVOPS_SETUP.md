@@ -39,8 +39,8 @@ system-testing ──► resolve image digests ──► docker compose up ─�
 
 - `.github/workflows/main.yaml`
   - Runs ktlint, unit tests, Testcontainers integration tests, build, coverage.
-  - Builds the image once, starts the full compose stack, waits for health,
-    then pushes `sha-<commit>` and `latest` tags on `main`.
+  - Builds the image once, starts the database and backend containers, waits
+    for health, then pushes `sha-<commit>` and `latest` tags on `main`.
   - Pushes a `vX.Y.Z` image tag and creates a GitHub Release on tag pushes.
   - Sends `repository_dispatch` to `QMemoryCards/system-testing` after a push
     to `main`.
@@ -59,8 +59,9 @@ system-testing ──► resolve image digests ──► docker compose up ─�
   ID after GitHub disabled the old scheduled workflow for inactivity)
   - Adds lint, Prettier check and app type-check, and runs the full Vitest
     suite (not only the integration subset).
-  - Builds and smoke-tests the image, pushes `sha-<commit>` and `latest` on
-    `main`, creates a release on `vX.Y.Z` tags, and dispatches system tests.
+  - Builds the image, starts the container and checks the static page, pushes
+    `sha-<commit>` and `latest` on `main`, creates a release on `vX.Y.Z` tags,
+    and dispatches system tests.
 - `Dockerfile`: Docker `HEALTHCHECK`.
 - `docker-compose.yaml`: same healthcheck and image-variable changes as backend.
 - `.env` is no longer tracked. Use `.env.example` as the template.
@@ -141,29 +142,25 @@ to get the push-triggered flow.
 
 ### 3. GHCR package access
 
-The system-testing repository pulls images published by the other two
-repositories, and each backend/frontend pipeline also pulls the other side's
-`latest` image for its smoke test. For each package:
+The system-testing repository pulls the images published by the other two
+repositories. The backend and frontend smoke tests are self-contained, so they
+do not need cross-package access. For each package:
 
 `QMemoryCards/backend` and `QMemoryCards/frontend` → **Packages** →
 `backend` / `frontend` → **Package settings → Manage Actions access**
 
 - `backend` package: **Write** for `QMemoryCards/backend`, **Read** for
-  `QMemoryCards/frontend` and `QMemoryCards/system-testing`.
+  `QMemoryCards/system-testing`.
 - `frontend` package: **Write** for `QMemoryCards/frontend`, **Read** for
-  `QMemoryCards/backend` and `QMemoryCards/system-testing`.
+  `QMemoryCards/system-testing`.
 
 If the packages are public, this step is not required. If organization policy
 blocks `GITHUB_TOKEN` access, create a classic PAT with `read:packages`, save it
 as the `GHCR_TOKEN` environment secret in both environments, and the deploy jobs
-will use it instead of `GITHUB_TOKEN`. The backend/frontend smoke tests use
-`GITHUB_TOKEN`; if their cross-package access cannot be granted, make the
-packages public or skip the cross-image smoke test in those two workflows.
+will use it instead of `GITHUB_TOKEN`.
 
-Bootstrap order on a fresh organization: the backend smoke test pulls the
-frontend `latest` image and vice versa. Publish both images once (for example,
-run each workflow manually or merge a trivial change) before expecting both
-smoke tests to pass. After that, `latest` always exists.
+Bootstrap order on a fresh organization: publish both images once (for example,
+merge a trivial change in each repository) before the first system-testing run.
 
 ### 4. Self-hosted runners
 
