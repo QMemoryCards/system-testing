@@ -1,8 +1,4 @@
-name: E2E Tests
-
-permissions:
-  contents: read
-  packages: write
+name: System Tests
 
 on:
   push:
@@ -11,46 +7,229 @@ on:
   pull_request:
     branches:
       - main
+  schedule:
+    - cron: "0 3 * * *"
+  repository_dispatch:
+    types: [images-published]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy the tested images to dev and prod
+        required: false
+        type: boolean
+        default: false
 
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: system-tests-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  e2e-tests:
+  e2e:
+    name: E2E
     runs-on: ubuntu-latest
+    outputs:
+      backend_image: ${{ steps.images.outputs.backend_image }}
+      frontend_image: ${{ steps.images.outputs.frontend_image }}
 
     steps:
-      # Checkout the repository
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      # Set up Docker Compose
-      - name: Set up Docker Compose
-        run: |
-          docker compose up -d
-
-      # Set up Python
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          python-version: 3.13
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
 
-      # Install dependencies
+      - name: Resolve published images
+        id: images
+        run: |
+          docker pull ghcr.io/qmemorycards/backend:latest
+          docker pull ghcr.io/qmemorycards/frontend:latest
+
+          backend_image=$(docker inspect --format='{{range .RepoDigests}}{{println .}}{{end}}' ghcr.io/qmemorycards/backend:latest | grep '^ghcr.io/qmemorycards/backend@' | head -n 1)
+          frontend_image=$(docker inspect --format='{{range .RepoDigests}}{{println .}}{{end}}' ghcr.io/qmemorycards/frontend:latest | grep '^ghcr.io/qmemorycards/frontend@' | head -n 1)
+
+          if [[ -z "$backend_image" || -z "$frontend_image" ]]; then
+            echo "Failed to resolve image digests" >&2
+            exit 1
+          fi
+
+          echo "BACKEND_IMAGE=${backend_image}" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=${frontend_image}" >> "$GITHUB_ENV"
+          echo "backend_image=${backend_image}" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=${frontend_image}" >> "$GITHUB_OUTPUT"
+          echo "Testing ${backend_image} and ${frontend_image}"
+
+          {
+            echo "### Tested images"
+            echo ""
+            echo "- backend: \`${backend_image}\`"
+            echo "- frontend: \`${frontend_image}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start the stack
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Install dependencies
         run: |
-          python -m venv .venv
-          source .venv/bin/activate
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          source .venv/bin/activate
-          playwright install
+          playwright install --with-deps chromium
 
-      # Run E2E tests
       - name: Run E2E tests
-        run: |
-          source .venv/bin/activate
-          pytest test_e2e.py -vv
+        run: pytest test_e2e.py -vv
 
-      # Tear down Docker Compose
-      - name: Tear down Docker Compose
+      - name: Show compose logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down the stack
         if: always()
+        run: docker compose down -v
+
+  deploy-dev:
+    name: Deploy Dev
+    runs-on: [self-hosted, dev]
+    needs: e2e
+    if: |
+      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy)
+    environment: dev
+    env:
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      CORS_ORIGIN_PATTERNS: ${{ secrets.CORS_ORIGIN_PATTERNS }}
+      FRONTEND_PUBLISHED_PORT: ${{ vars.FRONTEND_PUBLISHED_PORT || '80' }}
+      BACKEND_PUBLISHED_PORT: ${{ vars.BACKEND_PUBLISHED_PORT || '8080' }}
+      BACKEND_IMAGE: ${{ needs.e2e.outputs.backend_image }}
+      FRONTEND_IMAGE: ${{ needs.e2e.outputs.frontend_image }}
+      COMPOSE_PROJECT_NAME: qmemorycards-dev
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate deployment inputs
         run: |
-          docker compose down
+          : "${POSTGRES_DB:?POSTGRES_DB environment secret is required}"
+          : "${POSTGRES_USER:?POSTGRES_USER environment secret is required}"
+          : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment secret is required}"
+          : "${CORS_ORIGIN_PATTERNS:?CORS_ORIGIN_PATTERNS environment secret is required}"
+          : "${BACKEND_IMAGE:?tested backend image is required}"
+          : "${FRONTEND_IMAGE:?tested frontend image is required}"
+
+      - name: Write environment secrets
+        run: |
+          umask 077
+          {
+            printf 'POSTGRES_DB=%s\n' "$POSTGRES_DB"
+            printf 'POSTGRES_USER=%s\n' "$POSTGRES_USER"
+            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+            printf 'CORS_ORIGIN_PATTERNS=%s\n' "$CORS_ORIGIN_PATTERNS"
+            printf 'BACKEND_IMAGE=%s\n' "$BACKEND_IMAGE"
+            printf 'FRONTEND_IMAGE=%s\n' "$FRONTEND_IMAGE"
+            printf 'BACKEND_PUBLISHED_PORT=%s\n' "$BACKEND_PUBLISHED_PORT"
+            printf 'FRONTEND_PUBLISHED_PORT=%s\n' "$FRONTEND_PUBLISHED_PORT"
+          } > .env
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Pull and start
+        run: |
+          docker compose pull
+          docker compose up -d --remove-orphans --wait --wait-timeout 180
+          curl -fsS "http://localhost:${FRONTEND_PUBLISHED_PORT}/" > /dev/null
+          curl -fsS "http://localhost:${BACKEND_PUBLISHED_PORT}/actuator/health"
+
+      - name: Show compose logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -f .env
+
+  deploy-prod:
+    name: Deploy Prod
+    runs-on: [self-hosted, prod]
+    needs: [e2e, deploy-dev]
+    if: |
+      github.event_name == 'repository_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy)
+    environment: prod
+    env:
+      POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+      POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+      POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+      CORS_ORIGIN_PATTERNS: ${{ secrets.CORS_ORIGIN_PATTERNS }}
+      FRONTEND_PUBLISHED_PORT: ${{ vars.FRONTEND_PUBLISHED_PORT || '80' }}
+      BACKEND_PUBLISHED_PORT: ${{ vars.BACKEND_PUBLISHED_PORT || '8080' }}
+      BACKEND_IMAGE: ${{ needs.e2e.outputs.backend_image }}
+      FRONTEND_IMAGE: ${{ needs.e2e.outputs.frontend_image }}
+      COMPOSE_PROJECT_NAME: qmemorycards-prod
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate deployment inputs
+        run: |
+          : "${POSTGRES_DB:?POSTGRES_DB environment secret is required}"
+          : "${POSTGRES_USER:?POSTGRES_USER environment secret is required}"
+          : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment secret is required}"
+          : "${CORS_ORIGIN_PATTERNS:?CORS_ORIGIN_PATTERNS environment secret is required}"
+          : "${BACKEND_IMAGE:?tested backend image is required}"
+          : "${FRONTEND_IMAGE:?tested frontend image is required}"
+
+      - name: Write environment secrets
+        run: |
+          umask 077
+          {
+            printf 'POSTGRES_DB=%s\n' "$POSTGRES_DB"
+            printf 'POSTGRES_USER=%s\n' "$POSTGRES_USER"
+            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+            printf 'CORS_ORIGIN_PATTERNS=%s\n' "$CORS_ORIGIN_PATTERNS"
+            printf 'BACKEND_IMAGE=%s\n' "$BACKEND_IMAGE"
+            printf 'FRONTEND_IMAGE=%s\n' "$FRONTEND_IMAGE"
+            printf 'BACKEND_PUBLISHED_PORT=%s\n' "$BACKEND_PUBLISHED_PORT"
+            printf 'FRONTEND_PUBLISHED_PORT=%s\n' "$FRONTEND_PUBLISHED_PORT"
+          } > .env
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Pull and start
+        run: |
+          docker compose pull
+          docker compose up -d --remove-orphans --wait --wait-timeout 180
+          curl -fsS "http://localhost:${FRONTEND_PUBLISHED_PORT}/" > /dev/null
+          curl -fsS "http://localhost:${BACKEND_PUBLISHED_PORT}/actuator/health"
+
+      - name: Show compose logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Remove secrets from the runner
+        if: always()
+        run: rm -f .env
