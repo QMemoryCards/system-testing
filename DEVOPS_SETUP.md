@@ -55,7 +55,8 @@ system-testing ──► resolve image digests ──► docker compose up ─�
 
 ### frontend
 
-- `.github/workflows/main.yaml`
+- `.github/workflows/ci.yml` (renamed from `main.yaml` to get a fresh workflow
+  ID after GitHub disabled the old scheduled workflow for inactivity)
   - Adds lint, Prettier check and app type-check, and runs the full Vitest
     suite (not only the integration subset).
   - Builds and smoke-tests the image, pushes `sha-<commit>` and `latest` on
@@ -252,7 +253,7 @@ These checks were run locally after the changes:
 ```bash
 # Workflow syntax and expressions
 actionlint backend/.github/workflows/main.yaml \
-           frontend/.github/workflows/main.yaml \
+           frontend/.github/workflows/ci.yml \
            system-testing/.github/workflows/main.yaml
 
 # Compose interpolation and schema
@@ -303,6 +304,21 @@ frontend is `http://localhost/`.
 GitHub-side behavior (dispatch, environments, approval, self-hosted runners,
 GHCR push) cannot be executed from this machine. The first run after the UI
 setup is the real end-to-end check.
+
+## Troubleshooting
+
+- **A pull request has no checks.** Open the repository's **Actions** tab and
+  look for `disabled_inactivity`. GitHub disables workflows that contain a
+  `schedule` trigger after 60 days without repository activity. Re-enable the
+  workflow in the UI, then push a commit or close/reopen the pull request. The
+  frontend workflow was renamed to `.github/workflows/ci.yml` so it gets a fresh
+  workflow ID and is not tied to the old disabled `CI Pipeline` workflow.
+- **`Docker Image` fails while pulling the other service.** Grant the package
+  read access described above, or make the packages public.
+- **`Deploy Dev`/`Deploy Prod` stays queued.** No self-hosted runner with the
+  `dev`/`prod` label is online. Check **Settings → Actions → Runners**.
+- **`Deploy Prod` waits forever.** The `prod` Environment has required reviewers;
+  approve the deployment in the Actions run or in the Environments page.
 
 ## Operational notes
 
