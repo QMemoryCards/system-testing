@@ -166,20 +166,66 @@ merge a trivial change in each repository) before the first system-testing run.
 
 Repository: `QMemoryCards/system-testing` → **Settings → Actions → Runners**.
 
-Install one runner on the dev host with the custom label `dev`, and one on the
-prod host with the custom label `prod`. The jobs use
-`runs-on: [self-hosted, dev]` and `runs-on: [self-hosted, prod]`.
+The jobs use `runs-on: [self-hosted, dev]` and
+`runs-on: [self-hosted, prod]`.
 
-On each host:
+Install one runner on the dev host with the custom label `dev`, and one on the
+prod host with the custom label `prod`:
 
 ```bash
 # Follow the token/URL shown by GitHub, then:
 ./config.sh --url https://github.com/QMemoryCards/system-testing \
   --token <RUNNER_TOKEN> \
-  --labels dev          # or: --labels prod
+  --name qmemorycards-dev \
+  --labels dev
 sudo ./svc.sh install
 sudo ./svc.sh start
 ```
+
+GitHub allows several runners on one machine, but each needs its own directory,
+its own `--name`, and its own service name. Running `config.sh` twice in the
+same directory does not create a second runner. If you want two runners on one
+host:
+
+```bash
+mkdir -p ~/actions-runner-dev ~/actions-runner-prod
+# unpack the runner into each directory, then:
+(cd ~/actions-runner-dev && ./config.sh --url ... --token <TOKEN> \
+  --name qmemorycards-dev --labels dev)
+(cd ~/actions-runner-prod && ./config.sh --url ... --token <TOKEN> \
+  --name qmemorycards-prod --labels prod)
+```
+
+The registration token is short-lived; create a fresh one in
+**Settings → Actions → Runners → New self-hosted runner** if GitHub says it is
+invalid.
+
+#### One runner for both environments
+
+The `prod` gate is the GitHub Environment approval, not the runner label. If
+GitHub refuses a second runner on the same host, register one runner with both
+labels:
+
+```bash
+./config.sh --url https://github.com/QMemoryCards/system-testing \
+  --token <RUNNER_TOKEN> \
+  --name qmemorycards-host \
+  --labels dev,prod
+```
+
+If a runner is already registered with only `dev`, add `prod` in
+**Settings → Actions → Runners → <runner> → Labels**. Both deploy jobs will then
+match it; they run one at a time, and `prod` still waits for environment
+approval.
+
+Common registration errors:
+
+- `A runner with the name ... already exists` — choose a unique `--name`.
+- `Runner already configured. To reconfigure, use --replace` — you are in an
+  existing runner directory; use a new directory for the second runner.
+- `Registration token is invalid/expired` — generate a new token.
+- Service install fails — the service name is derived from the runner name;
+  unique runner names give unique service names.
 
 The runner user must be able to run Docker:
 
@@ -194,11 +240,11 @@ docker --version
 docker compose version
 ```
 
-If both environments run on the same host, install two runner instances with
-different names and labels, and use different
-`FRONTEND_PUBLISHED_PORT` / `BACKEND_PUBLISHED_PORT` values. The compose project
-name is already different (`qmemorycards-dev` and `qmemorycards-prod`), so the
-containers do not collide.
+If both environments run on the same host, use one runner with both labels (see
+above) or two runner instances with different names. Set different
+`FRONTEND_PUBLISHED_PORT` / `BACKEND_PUBLISHED_PORT` values for the two
+environments. The compose project name is already different
+(`qmemorycards-dev` and `qmemorycards-prod`), so the containers do not collide.
 
 Pull requests never run on the self-hosted runners: E2E uses `ubuntu-latest`,
 and the deploy jobs only run for `repository_dispatch` or a manual run. This
