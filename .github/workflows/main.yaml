@@ -157,8 +157,14 @@ jobs:
         run: |
           docker compose pull
           docker compose up -d --remove-orphans --wait --wait-timeout 180
+          docker compose exec -T frontend nginx -s reload
           curl -fsS "http://localhost:${FRONTEND_PUBLISHED_PORT}/" > /dev/null
           curl -fsS "http://localhost:${BACKEND_PUBLISHED_PORT}/actuator/health"
+          api_code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${FRONTEND_PUBLISHED_PORT}/api/v1/decks")
+          if [ "$api_code" != "401" ] && [ "$api_code" != "200" ]; then
+            echo "API proxy check failed: HTTP $api_code" >&2
+            exit 1
+          fi
 
       - name: Show compose logs on failure
         if: failure()
@@ -182,10 +188,10 @@ jobs:
       POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
       CORS_ORIGIN_PATTERNS: ${{ secrets.CORS_ORIGIN_PATTERNS }}
       FRONTEND_PUBLISHED_PORT: ${{ vars.FRONTEND_PUBLISHED_PORT || '80' }}
-      BACKEND_PUBLISHED_PORT: ${{ vars.BACKEND_PUBLISHED_PORT || '8080' }}
       BACKEND_IMAGE: ${{ needs.e2e.outputs.backend_image }}
       FRONTEND_IMAGE: ${{ needs.e2e.outputs.frontend_image }}
       COMPOSE_PROJECT_NAME: qmemorycards-prod
+      COMPOSE_FILE: docker-compose.yaml:docker-compose.prod.yaml
 
     steps:
       - name: Checkout code
@@ -210,7 +216,6 @@ jobs:
             printf 'CORS_ORIGIN_PATTERNS=%s\n' "$CORS_ORIGIN_PATTERNS"
             printf 'BACKEND_IMAGE=%s\n' "$BACKEND_IMAGE"
             printf 'FRONTEND_IMAGE=%s\n' "$FRONTEND_IMAGE"
-            printf 'BACKEND_PUBLISHED_PORT=%s\n' "$BACKEND_PUBLISHED_PORT"
             printf 'FRONTEND_PUBLISHED_PORT=%s\n' "$FRONTEND_PUBLISHED_PORT"
           } > .env
 
@@ -225,8 +230,14 @@ jobs:
         run: |
           docker compose pull
           docker compose up -d --remove-orphans --wait --wait-timeout 180
+          docker compose exec -T frontend nginx -s reload
           curl -fsS "http://localhost:${FRONTEND_PUBLISHED_PORT}/" > /dev/null
-          curl -fsS "http://localhost:${BACKEND_PUBLISHED_PORT}/actuator/health"
+          docker compose exec -T backend curl -fsS http://localhost:8080/actuator/health
+          api_code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${FRONTEND_PUBLISHED_PORT}/api/v1/decks")
+          if [ "$api_code" != "401" ] && [ "$api_code" != "200" ]; then
+            echo "API proxy check failed: HTTP $api_code" >&2
+            exit 1
+          fi
 
       - name: Show compose logs on failure
         if: failure()

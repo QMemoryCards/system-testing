@@ -115,9 +115,13 @@ Add these **environment variables** to both environments (not secrets):
 | Variable | Dev example | Prod example |
 | --- | --- | --- |
 | `FRONTEND_PUBLISHED_PORT` | `8081` | `80` |
-| `BACKEND_PUBLISHED_PORT` | `8082` | `8080` |
+| `BACKEND_PUBLISHED_PORT` | `8082` | not used |
 
-If dev and prod run on different hosts, both can use `80` / `8080`.
+Prod runs with `docker-compose.prod.yaml`, which removes the backend host port.
+The frontend reaches backend as `backend:8080` inside the Compose network.
+
+If dev and prod run on different hosts, dev can use `8080` for the backend; prod
+does not publish it at all.
 
 The deploy jobs write these values to a temporary `.env` on the runner with
 `umask 077`, start the stack, and delete the file afterwards. No secret is
@@ -241,10 +245,11 @@ docker compose version
 ```
 
 If both environments run on the same host, use one runner with both labels (see
-above) or two runner instances with different names. Set different
-`FRONTEND_PUBLISHED_PORT` / `BACKEND_PUBLISHED_PORT` values for the two
-environments. The compose project name is already different
-(`qmemorycards-dev` and `qmemorycards-prod`), so the containers do not collide.
+above) or two runner instances with different names. Set a different
+`FRONTEND_PUBLISHED_PORT` for the two environments. Prod does not publish the
+backend port; dev keeps `BACKEND_PUBLISHED_PORT` for the E2E-style checks. The
+compose project name is already different (`qmemorycards-dev` and
+`qmemorycards-prod`), so the containers do not collide.
 
 Pull requests never run on the self-hosted runners: E2E uses `ubuntu-latest`,
 and the deploy jobs only run for `repository_dispatch` or a manual run. This
@@ -350,6 +355,11 @@ setup is the real end-to-end check.
 
 ## Troubleshooting
 
+- **502 Bad Gateway after a deploy.** Nginx caches the resolved IP of the
+  `backend` hostname. The frontend image now uses Docker DNS with
+  `resolver 127.0.0.11 valid=10s`, and the deploy job reloads nginx after
+  `docker compose up`. If an old image is still running, reload it once:
+  `docker compose exec -T frontend nginx -s reload`.
 - **A pull request has no checks.** Open the repository's **Actions** tab and
   look for `disabled_inactivity`. GitHub disables workflows that contain a
   `schedule` trigger after 60 days without repository activity. Re-enable the

@@ -1,0 +1,7 @@
+# Prod override: keep the backend on the internal Compose network.
+# It is reached by the frontend through `backend:8080`; no host port is needed.
+services:
+  backend:
+    ports: !reset []
+    expose:
+      - "8080"
