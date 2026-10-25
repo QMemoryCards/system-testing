@@ -63,6 +63,7 @@ system-testing ──► resolve image digests ──► docker compose up ─�
     `sha-<commit>` and `latest` on `main`, creates a release on `vX.Y.Z` tags,
     and dispatches system tests.
 - `Dockerfile`: Docker `HEALTHCHECK`.
+- `nginx.conf.template`: resolves the backend through Docker DNS, so a recreated backend container does not leave a stale upstream IP.
 - `docker-compose.yaml`: same healthcheck and image-variable changes as backend.
 - `.env` is no longer tracked. Use `.env.example` as the template.
 - Test files are linted with relaxed `no-explicit-any` and react-refresh rules;
@@ -86,6 +87,8 @@ system-testing ──► resolve image digests ──► docker compose up ─�
 - `.github/actionlint.yaml` declares the custom runner labels for local linting.
 - `docker-compose.yaml`: image variables, healthchecks, service-name networking,
   configurable project name and host ports.
+- `docker-compose.prod.yaml`: prod override that removes the backend host port;
+  the backend is reachable only inside the Compose network.
 - `.env` is no longer tracked. Use `.env.example` as the template.
 
 ## One-time GitHub UI setup
