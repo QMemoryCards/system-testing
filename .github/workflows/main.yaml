@@ -30,7 +30,9 @@ concurrency:
 jobs:
   e2e:
     name: E2E
-    runs-on: ubuntu-latest
+    # Playwright 1.58 is supported on Ubuntu 24.04. Pin the runner image:
+    # ubuntu-latest is migrating to Ubuntu 26.04, where --with-deps fails.
+    runs-on: ubuntu-24.04
     outputs:
       backend_image: ${{ steps.images.outputs.backend_image }}
       frontend_image: ${{ steps.images.outputs.frontend_image }}
